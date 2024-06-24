@@ -1875,154 +1875,154 @@ Example:
 	tmp = del(tmp)
 ------------------------------------------------------------------------------------]]
 function module:TriggerCombatEvent(category, name, info, throttleDone)
-	if not module:IsEnabled() then return end -- TODO remove
+    if not module:IsEnabled() then return end -- TODO remove
 
-	if cancelUIDSoon[info.uid] then
-		return
-	end
-	if type(category) ~= "string" then
-		error(("Bad argument #2 to `TriggerCombatEvent'. %q expected, got %q."):format("string", type(category)), 2)
-		return
-	end
-	local data = combatEvents[category]
-	if not data then
-		error(("Bad argument #2 to `TriggerCombatEvent'. %q is an unknown category."):format(category), 2)
-		return
-	end
-	if type(name) ~= "string" then
-		error(("Bad argument #3 to `TriggerCombatEvent'. %q expected, got %q."):format("string", type(name)), 2)
-		return
-	end
-	data = data[name]
-	if not data then
-		error(("Bad argument #3 to `TriggerCombatEvent'. %q is an unknown name for category %q."):format(name, category), 2)
-		return
-	end
+    if cancelUIDSoon[info.uid] then
+        return
+    end
+    if type(category) ~= "string" then
+        error(("Bad argument #2 to `TriggerCombatEvent'. %q expected, got %q."):format("string", type(category)), 2)
+        return
+    end
+    local data = combatEvents[category]
+    if not data then
+        error(("Bad argument #2 to `TriggerCombatEvent'. %q is an unknown category."):format(category), 2)
+        return
+    end
+    if type(name) ~= "string" then
+        error(("Bad argument #3 to `TriggerCombatEvent'. %q expected, got %q."):format("string", type(name)), 2)
+        return
+    end
+    data = data[name]
+    if not data then
+        error(("Bad argument #3 to `TriggerCombatEvent'. %q is an unknown name for category %q."):format(name, category), 2)
+        return
+    end
 
-	local cdb = db[category][name]
-	local disabled = cdb.disabled
-	if disabled == nil then
-		disabled = data.defaultDisabled
-	end
-	if disabled then
-		return
-	end
+    local cdb = db[category][name]
+    local disabled = cdb.disabled
+    if disabled == nil then
+        disabled = data.defaultDisabled
+    end
+    if disabled then
+        return
+    end
 
-	if type(info) ~= "table" then
-		error(("Bad argument #4 to `TriggerCombatEvent'. %q expected, got %q."):format("table", type(info)), 2)
-		return
-	end
+    if type(info) ~= "table" then
+        error(("Bad argument #4 to `TriggerCombatEvent'. %q expected, got %q."):format("table", type(info)), 2)
+        return
+    end
 
-	if throttleDone then
-		if info[STHROTTLE] then
-			if info[STHROTTLE].waitStyle then
-				info[NEXT_TIME] = nil
-			else
-				info[LAST_TIME] = GetTime()
-			end
-		else
-			if throttleWaitStyles[data.throttle[1]] then
+    if throttleDone then
+        if info[STHROTTLE] then
+            if info[STHROTTLE].waitStyle then
+                info[NEXT_TIME] = nil
+            else
+                info[LAST_TIME] = GetTime()
+            end
+        else
+            if throttleWaitStyles[data.throttle[1]] then
+                info[NEXT_TIME] = nil
+            else
+                info[LAST_TIME] = GetTime()
+            end
+        end
+    elseif data.throttle then
+        local throttle = data.throttle
+        local throttleType = throttle[1]
+        local sthrottle = get_sthrottle(info)
 
-				info[NEXT_TIME] = nil
-			else
+        -- Ensure that variables are not nil
+        local db_throttle_time = db.throttles[throttleType] or throttleDefaultTimes[throttleType]
+        local sthrottle_time = sthrottle and sthrottle.time or 0
+        if db_throttle_time > 0 or sthrottle_time > 0 then
+            if not throttleData[throttleType] then
+                throttleData[throttleType] = newList()
+            end
+            if not throttleData[throttleType][category] then
+                throttleData[throttleType][category] = newList()
+            end
+            if not throttleData[throttleType][category][name] then
+                throttleData[throttleType][category][name] = newList()
+            end
+            local throttleKey = throttle[2]
+            local info_throttleKey
+            if type(throttleKey) == "function" then
+                info_throttleKey = throttleKey(info)
+            else
+                info_throttleKey = info[throttleKey]
+            end
+            local throttleCountData = throttle[3]
+            local throttleCountKey = throttleCountData[1]
+            for i = 2, #throttleCountData-1 do
+                local v = throttleCountData[i]
+                throttleCountKey = throttleCountKey .. "_" .. v .. "_" .. tostring(info[v])
+            end
+            local t = throttleData[throttleType][category][name][info_throttleKey]
+            if next(info) == nil and getmetatable(info) then
+                info = getmetatable(info).__raw
+            end
+            if t then
+                for k, v in pairs(info) do
+                    if k ~= LAST_TIME and k ~= NEXT_TIME then
+                        if t[k] == nil then
+                            t[k] = v
+                        elseif throttle[k] and t[k] ~= v then
+                            t[k] = throttle[k]
+                        elseif type(v) == "number" and k:match("[Aa]mount") then -- sum up amounts
+                            t[k] = t[k] + v
+                        end
+                    end
+                end
+                t[throttleCountKey] = (t[throttleCountKey] or 0) + 1
+                return
+            else
+                t = newList()
+                if (sthrottle) then
+                    if sthrottle.waitStyle then
+                        t[NEXT_TIME] = GetTime() + sthrottle.time
+                    else
+                        t[LAST_TIME] = 0
+                    end
+                    t[STHROTTLE] = sthrottle
+                else
+                    if throttleWaitStyles[throttleType] then
+                        t[NEXT_TIME] = GetTime() + (db.throttles[throttleType] or throttleDefaultTimes[throttleType])
+                    else
+                        t[LAST_TIME] = 0
+                    end
+                end
+                throttleData[throttleType][category][name][info_throttleKey] = t
+                for k, v in pairs(info) do
+                    t[k] = v
+                end
+                t[throttleCountKey] = 1
+                return
+            end
+        end
+    end
 
-				info[LAST_TIME] = GetTime()
-			end
-		end
-	elseif data.throttle then
-		local throttle = data.throttle
-		local throttleType = throttle[1]
-		local sthrottle = get_sthrottle(info)
+    local infoCopy = newList()
+    if next(info) == nil and getmetatable(info) then
+        info = getmetatable(info).__raw
+    end
+    for k, v in pairs(info) do
+        infoCopy[k] = v
+    end
 
-		if (db.throttles[throttleType] or throttleDefaultTimes[throttleType]) > 0 or (sthrottle and sthrottle.time > 0) then
-			if not throttleData[throttleType] then
-				throttleData[throttleType] = newList()
-			end
-			if not throttleData[throttleType][category] then
-				throttleData[throttleType][category] = newList()
-			end
-			if not throttleData[throttleType][category][name] then
-				throttleData[throttleType][category][name] = newList()
-			end
-			local throttleKey = throttle[2]
-			local info_throttleKey
-			if type(throttleKey) == "function" then
-				info_throttleKey = throttleKey(info)
-			else
-				info_throttleKey = info[throttleKey]
-			end
-			local throttleCountData = throttle[3]
-			local throttleCountKey = throttleCountData[1]
-			for i = 2, #throttleCountData-1 do
-				local v = throttleCountData[i]
-				throttleCountKey = throttleCountKey .. "_" .. v .. "_" .. tostring(info[v])
-			end
-			local t = throttleData[throttleType][category][name][info_throttleKey]
-			if next(info) == nil and getmetatable(info) then
-				info = getmetatable(info).__raw
-			end
-			if t then
-				for k, v in pairs(info) do
-					if k ~= LAST_TIME and k ~= NEXT_TIME then
-						if t[k] == nil then
-							t[k] = v
-						elseif throttle[k] and t[k] ~= v then
-							t[k] = throttle[k]
-						elseif type(v) == "number" and k:match("[Aa]mount") then -- sum up amounts
-							t[k] = t[k] + v
-						end
-					end
-				end
-				t[throttleCountKey] = (t[throttleCountKey] or 0) + 1
-				return
-			else
-				t = newList()
-				if (sthrottle) then
-					if sthrottle.waitStyle then
-						t[NEXT_TIME] = GetTime() + sthrottle.time
-					else
-						t[LAST_TIME] = 0
-					end
-					t[STHROTTLE] = sthrottle
-				else
-					if throttleWaitStyles[throttleType] then
-						t[NEXT_TIME] = GetTime() + (db.throttles[throttleType] or throttleDefaultTimes[throttleType])
-					else
-						t[LAST_TIME] = 0
-					end
-				end
-				throttleData[throttleType][category][name][info_throttleKey] = t
-				for k, v in pairs(info) do
-					t[k] = v
-				end
-				t[throttleCountKey] = 1
-				return
-			end
-		end
-	end
+    if throttleDone then
+        for k in pairs(info) do
+            if k ~= LAST_TIME and k ~= STHROTTLE then
+                info[k] = nil
+            end
+        end
+    end
 
-	local infoCopy = newList()
-	if next(info) == nil and getmetatable(info) then
-		info = getmetatable(info).__raw
-	end
-	for k, v in pairs(info) do
-		infoCopy[k] = v
-	end
+    if #nextFrameCombatEvents == 0 then
+        combatTimerFrame:Show()
+    end
 
-	if throttleDone then
-
-		for k in pairs(info) do
-			if k ~= LAST_TIME and k ~= STHROTTLE then
-				info[k] = nil
-			end
-		end
-	end
-
-	if #nextFrameCombatEvents == 0 then
-		combatTimerFrame:Show()
-	end
-
-	nextFrameCombatEvents[#nextFrameCombatEvents+1] = newList(category, name, infoCopy)
+    nextFrameCombatEvents[#nextFrameCombatEvents+1] = newList(category, name, infoCopy)
 end
 Parrot.TriggerCombatEvent = module.TriggerCombatEvent
 
